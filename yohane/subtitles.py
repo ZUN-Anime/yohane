@@ -7,13 +7,13 @@ from torchaudio.functional import TokenSpan
 from torchaudio.pipelines import Wav2Vec2FABundle
 
 from yohane.audio import fa_bundle
-from yohane.lyrics import Lyrics
+from yohane.lyrics import RichText, Syllable
 from yohane.utils import get_identifier
 
 
 @dataclass
 class TimedSyllable:
-    value: str
+    value: Syllable
     start_s: float  # s
     end_s: float  # s
 
@@ -23,7 +23,7 @@ class TimedSyllable:
 
 
 def make_ass(
-    lyrics: Lyrics,
+    lyrics: RichText,
     waveform: Tensor,
     sample_rate: int,
     emission: Tensor,
@@ -33,21 +33,22 @@ def make_ass(
         lyrics, waveform, sample_rate, emission, token_spans
     )
 
-    subs = SSAFile()
+    subs = SSAFile.load('sampleKaraokeMugen.ass')
     subs.info["Original Timing"] = get_identifier()
 
+    marginV = False
     for line, syllables in zip(lyrics.lines, all_line_syllables):
         start_syl = syllables[0]
         end_syl = syllables[-1]
         assert start_syl is not None and end_syl is not None
 
-        event = SSAEvent(round(start_syl.start_s * 1000), round(end_syl.end_s * 1000))
+        event = SSAEvent(round(start_syl.start_s * 1000), round(end_syl.end_s * 1000), style="Sample KM [Up]", effect="karaoke", type="Comment", marginv=int(marginV))
 
         for i, syllable in enumerate(syllables):
             if syllable is None:  # space
                 continue
 
-            value = syllable.value
+            value = str(syllable.value)
 
             snap_to_i = None
             if i < len(syllables) - 1:  # not last syllable in line
@@ -68,14 +69,14 @@ def make_ass(
             event.text += rf"{{\k{k_duration}}}{value}"
 
         # save the raw line in a comment
-        comment = SSAEvent(event.start, event.end, line.raw, type="Comment")
-        subs.extend((comment, event))
+        subs.append(event)
+        marginV = not marginV
 
     return subs
 
 
 def time_lyrics(
-    lyrics: Lyrics,
+    lyrics: RichText,
     waveform: Tensor,
     sample_rate: int,
     emission: Tensor,
@@ -94,7 +95,8 @@ def time_lyrics(
     for line in lyrics.lines:
         line_syllables: list[TimedSyllable | None] = []
 
-        for word in line.words:
+        # TODO: split line into words
+        for word in [line]:
             spans = next(token_spans_iter)
             span_idx = 0
             time_syllable = partial(add_syllable, spans)
@@ -123,10 +125,10 @@ def _time_syllable(
     sample_rate: float,
     tokenizer: Wav2Vec2FABundle.Tokenizer,
     spans: list[TokenSpan],
-    syllable: str,
+    syllable: Syllable,
     span_idx: int,
 ):
-    syllable_tokens = tokenizer([syllable])
+    syllable_tokens = tokenizer([syllable.roman])
     nb_tokens = len(syllable_tokens[0])
 
     # start and end time of syllable

@@ -6,7 +6,7 @@ import torchaudio
 from torchaudio.functional import TokenSpan
 
 from yohane.audio import Separator, compute_alignments
-from yohane.lyrics import Lyrics
+from yohane.lyrics import RichText
 from yohane.subtitles import make_ass
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ class Yohane:
         self.separator = separator
         self.song: tuple[torch.Tensor, int] | None = None
         self.vocals: tuple[torch.Tensor, int] | None = None
-        self.lyrics: Lyrics | None = None
+        self.lyrics: RichText | None = None
         self.forced_alignment: tuple[torch.Tensor, list[list[TokenSpan]]] | None = None
 
     @property
@@ -44,15 +44,15 @@ class Yohane:
             assert self.song
             self.vocals = self.separator(*self.song)
 
-    def load_lyrics(self, lyrics_str: str):
+    def load_lyrics(self, lyrics_str: RichText):
         logger.info("Loading lyrics")
-        self.lyrics = Lyrics(lyrics_str)
+        self.lyrics = lyrics_str
 
     def force_align(self):
         logger.info("Computing forced alignment")
         assert self.forced_aligned_audio is not None and self.lyrics is not None
         self.forced_alignment = compute_alignments(
-            *self.forced_aligned_audio, self.lyrics.transcript
+            *self.forced_aligned_audio, [str(line.romanized) for line in self.lyrics.lines]
         )
 
     def make_subs(self):
