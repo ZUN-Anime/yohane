@@ -7,7 +7,7 @@ from torchaudio.functional import TokenSpan
 from torchaudio.pipelines import Wav2Vec2FABundle
 
 from yohane.audio import fa_bundle
-from yohane.lyrics import RichText, Syllable
+from yohane.lyrics import RichText, Syllable, normalize_uroman
 from yohane.utils import get_identifier
 
 
@@ -50,11 +50,13 @@ def make_ass(
                 continue
 
             value = str(syllable.value)
+            value_roman = syllable.value.roman
 
             snap_to_i = None
             if i < len(syllables) - 1:  # not last syllable in line
                 if syllables[i + 1] is None:  # next is space
                     value += " "
+                    value_roman += " "
                     snap_to_i = i + 2  # snap to syllable after the space
                 else:
                     snap_to_i = i + 1  # snap to next syllable
@@ -76,6 +78,39 @@ def make_ass(
         marginV = not marginV
 
     return subs
+
+# def 
+def rstrip(l: list, value=None):
+    while l and l[-1] == value:
+        l.pop()
+
+def cut_lines(lines: list[list[TimedSyllable | None]], by_roman: bool, max_length: int):
+    """
+    Cut lines to fit within a certain length
+    """
+    assert max_length > 0
+    new_lines = []
+    for line in lines:
+        new_line = []
+        line_length = 0
+        for syllable in line:
+            if syllable is None:
+                syllable_length = 1
+            elif by_roman:
+                syllable_length = len(syllable.value.roman)
+            else:
+                syllable_length = len(str(syllable.value))
+            if line_length + syllable_length > max_length:
+                rstrip(new_line)
+                new_lines.append(new_line)
+                new_line = []
+                line_length = 0
+            new_line.append(syllable)
+            line_length += syllable_length
+        if new_line:
+            rstrip(new_line)
+            new_lines.append(new_line)
+    return new_lines
 
 
 def time_lyrics(
@@ -101,27 +136,36 @@ def time_lyrics(
     for line in lyrics.lines:
         line_syllables: list[TimedSyllable | None] = []
 
-        # TODO: split line into words
         for syllable in line.syllables:
-            if syllable.roman == "":
+            if syllable.roman.isspace():
+                # add a None to represent a space
+                line_syllables.append(None)
+                continue
+            token_str = normalize_uroman(syllable.roman)
+            t_start, t_end = None, None
+            if token_str == "":
+                # the syllable cannot be processed by the tokenizer
+                # we append it to the previous syllable
                 last_syllable = None
                 if line_syllables:
                     last_syllable = line_syllables[-1]
                 elif all_line_syllables:
                     last_syllable = all_line_syllables[-1][-1]
+
                 line_syllables.append(TimedSyllable(syllable, last_syllable.end_s, last_syllable.end_s))
                 continue
             if span_idx >= len(spans):
+                # fetch the next spans
                 spans = next(token_spans_iter)
                 span_idx = 0
-            nb_tokens, timed_syllable = add_syllable(spans, syllable, span_idx)
+            nb_tokens, t_start, t_end = add_syllable(spans, token_str, span_idx)
             span_idx += nb_tokens
+            timed_syllable = TimedSyllable(syllable, t_start, t_end)
             line_syllables.append(timed_syllable)
 
-            # line_syllables.append(None)
-
-        # line_syllables = line_syllables[:-1]  # remove trailing None
-        all_line_syllables.append(line_syllables)
+        if line_syllables:
+            rstrip(line_syllables) # remove trailing space 
+            all_line_syllables.append(line_syllables)
 
     try:
         next(token_spans_iter)  # make sure we used all spans
@@ -137,10 +181,10 @@ def _time_syllable(
     sample_rate: float,
     tokenizer: Wav2Vec2FABundle.Tokenizer,
     spans: list[TokenSpan],
-    syllable: Syllable,
+    token_str: str,
     span_idx: int,
 ):
-    syllable_tokens = tokenizer([syllable.roman])
+    syllable_tokens = tokenizer([token_str])
     nb_tokens = len(syllable_tokens[0])
     assert syllable_tokens[0] == [span.token for span in spans[span_idx:span_idx + nb_tokens]]
 
@@ -150,6 +194,4 @@ def _time_syllable(
     t_start = x0 / sample_rate  # s
     t_end = x1 / sample_rate  # s
 
-    timed_syllable = TimedSyllable(syllable, t_start, t_end)
-
-    return nb_tokens, timed_syllable
+    return nb_tokens, t_start, t_end

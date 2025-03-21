@@ -83,7 +83,7 @@ class RichText:
     #     return [RichText([w]) for w in res]
 
     @cached_property
-    def syllables(self):
+    def syllables(self) -> list[Syllable]:
         res = []
         for ele in self.raw:
             if isinstance(ele, Ruby):
@@ -93,17 +93,13 @@ class RichText:
                         Syllable(
                             ele.rt[edge.start : edge.end],
                             ele.rb if first else "#",
-                            normalize_uroman(edge.txt),
+                            edge.txt,
                         )
                     )
                     first = False
             else:
                 for edge in uroman.romanize_string(ele, rom_format=ur.RomFormat.EDGES):
-                    res.append(
-                        Syllable(
-                            ele[edge.start : edge.end], None, normalize_uroman(edge.txt)
-                        )
-                    )
+                    res.append(Syllable(ele[edge.start : edge.end], None, edge.txt))
         return res
 
     @cached_property
