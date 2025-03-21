@@ -12,7 +12,7 @@ class Ruby:
 
     def __str__(self):
         return f"[{self.rb}]({self.rt})"
-    
+
 @dataclass
 class Syllable:
     kana: str
@@ -21,6 +21,16 @@ class Syllable:
 
     def __str__(self):
         return (f"{self.kanji}|" if self.kanji else "") + self.kana
+
+
+def normalize_uroman(text: str):
+    text = text.lower()
+    text = text.replace("’", "'")
+    text = re.sub("([^a-z'-*\n ])", " ", text)
+    text = re.sub("\n[\n ]+", "\n", text)
+    text = re.sub(" +", " ", text)
+    return text.strip()
+
 
 @dataclass
 class RichText:
@@ -57,6 +67,8 @@ class RichText:
                             line = []
                     elif s:
                         line.append(s)
+        if line:
+            res.append(line)
         return [RichText(line) for line in res]
 
     # @cached_property
@@ -69,21 +81,31 @@ class RichText:
     #             assert type(ele) is str
     #             res.extend(ele.split())
     #     return [RichText([w]) for w in res]
-    
+
     @cached_property
     def syllables(self):
         res = []
         for ele in self.raw:
-            if type(ele) is Ruby:
+            if isinstance(ele, Ruby):
                 first = True
                 for edge in uroman.romanize_string(ele.rt, rom_format=ur.RomFormat.EDGES):
-                    res.append(Syllable(ele.rt[edge.start:edge.end], ele.rb if first else "#", edge.txt))
+                    res.append(
+                        Syllable(
+                            ele.rt[edge.start : edge.end],
+                            ele.rb if first else "#",
+                            normalize_uroman(edge.txt),
+                        )
+                    )
                     first = False
             else:
                 for edge in uroman.romanize_string(ele, rom_format=ur.RomFormat.EDGES):
-                    res.append(Syllable(ele[edge.start:edge.end], None, edge.txt))
+                    res.append(
+                        Syllable(
+                            ele[edge.start : edge.end], None, normalize_uroman(edge.txt)
+                        )
+                    )
         return res
-    
+
     @cached_property
     def romanized(self):
         romans = [uroman.romanize_string(ele.rt if type(ele) is Ruby else str(ele)) for ele in self.raw]
@@ -117,7 +139,6 @@ class RichText:
             tokens.append(text[last_index:])
 
         return RichText(tokens)
-                
 
 
 # @dataclass
@@ -152,15 +173,6 @@ class RichText:
 #     @cached_property
 #     def syllables(self):
 #         return auto_split(self.normalized)
-
-
-# def normalize_uroman(text: str):
-#     text = text.lower()
-#     text = text.replace("’", "'")
-#     text = re.sub("([^a-z'\n ])", " ", text)
-#     text = re.sub("\n[\n ]+", "\n", text)
-#     text = re.sub(" +", " ", text)
-#     return text.strip()
 
 
 # # https://docs.karaokes.moe/aegisub/auto-split.lua

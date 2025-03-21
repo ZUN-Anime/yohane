@@ -6,7 +6,7 @@ import torchaudio
 from torchaudio.functional import TokenSpan
 
 from yohane.audio import Separator, compute_alignments
-from yohane.lyrics import RichText
+from yohane.lyrics import RichText, normalize_uroman
 from yohane.subtitles import make_ass
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ class Yohane:
         logger.info("Computing forced alignment")
         assert self.forced_aligned_audio is not None and self.lyrics is not None
         self.forced_alignment = compute_alignments(
-            *self.forced_aligned_audio, [str(line.romanized) for line in self.lyrics.lines]
+            *self.forced_aligned_audio, normalize_uroman(str(self.lyrics.romanized)).split()
         )
 
     def make_subs(self):

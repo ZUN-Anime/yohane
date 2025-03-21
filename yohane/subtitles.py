@@ -43,6 +43,7 @@ def make_ass(
         assert start_syl is not None and end_syl is not None
 
         event = SSAEvent(round(start_syl.start_s * 1000), round(end_syl.end_s * 1000), style="Sample KM [Up]", effect="karaoke", type="Comment", marginv=int(marginV))
+        event_roman = SSAEvent(round(start_syl.start_s * 1000), round(end_syl.end_s * 1000), style="Sample KM [Down]", effect="karaoke", type="Comment", marginv=int(marginV)-1)
 
         for i, syllable in enumerate(syllables):
             if syllable is None:  # space
@@ -67,9 +68,11 @@ def make_ass(
 
             k_duration = syllable.k_duration(snap_to=snap_to)  # cs
             event.text += rf"{{\k{k_duration}}}{value}"
+            event_roman.text += rf"{{\k{k_duration}}}{syllable.value.roman}"
 
         # save the raw line in a comment
         subs.append(event)
+        subs.append(event_roman)
         marginV = not marginV
 
     return subs
@@ -90,25 +93,34 @@ def time_lyrics(
     token_spans_iter = iter(token_spans)
     add_syllable = partial(_time_syllable, ratio, sample_rate, tokenizer)
 
+    spans = next(token_spans_iter)
+    span_idx = 0
+
     all_line_syllables: list[list[TimedSyllable | None]] = []
 
     for line in lyrics.lines:
         line_syllables: list[TimedSyllable | None] = []
 
         # TODO: split line into words
-        for word in [line]:
-            spans = next(token_spans_iter)
-            span_idx = 0
-            time_syllable = partial(add_syllable, spans)
+        for syllable in line.syllables:
+            if syllable.roman == "":
+                last_syllable = None
+                if line_syllables:
+                    last_syllable = line_syllables[-1]
+                elif all_line_syllables:
+                    last_syllable = all_line_syllables[-1][-1]
+                line_syllables.append(TimedSyllable(syllable, last_syllable.end_s, last_syllable.end_s))
+                continue
+            if span_idx >= len(spans):
+                spans = next(token_spans_iter)
+                span_idx = 0
+            nb_tokens, timed_syllable = add_syllable(spans, syllable, span_idx)
+            span_idx += nb_tokens
+            line_syllables.append(timed_syllable)
 
-            for syllable in word.syllables:
-                nb_tokens, timed_syllable = time_syllable(syllable, span_idx)
-                span_idx += nb_tokens
-                line_syllables.append(timed_syllable)
+            # line_syllables.append(None)
 
-            line_syllables.append(None)
-
-        line_syllables = line_syllables[:-1]  # remove trailing None
+        # line_syllables = line_syllables[:-1]  # remove trailing None
         all_line_syllables.append(line_syllables)
 
     try:
@@ -130,6 +142,7 @@ def _time_syllable(
 ):
     syllable_tokens = tokenizer([syllable.roman])
     nb_tokens = len(syllable_tokens[0])
+    assert syllable_tokens[0] == [span.token for span in spans[span_idx:span_idx + nb_tokens]]
 
     # start and end time of syllable
     x0 = ratio * spans[span_idx].start
